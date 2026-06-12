@@ -35,6 +35,7 @@ LEVELS = {
 }
 PARAPET_H = 1.12
 PARAPET_T = 0.12
+WALL_T = 0.22          # exterior wall thickness for the continuous shell
 
 
 def load_walls(name):
@@ -351,14 +352,25 @@ def main():
         lv = LEVELS[f]
         openings = classify_openings(opens[f], walls_m[f], feet[f], f)
         merged = merge_walls(walls_m[f], openings)
+        # continuous watertight exterior shell from the clean footprint ring.
+        # Inset 5 mm so fragmented walls win on faces they cover; shell fills slits.
+        foot = feet[f]
+        ring = foot.buffer(-0.005, join_style=2).difference(foot.buffer(-WALL_T, join_style=2))
+        ext_cuts = [box(*o["rect"]) for o in openings if o["exterior"]]
+        if ext_cuts:
+            ring = ring.difference(unary_union([c.buffer(0.04, join_style=2) for c in ext_cuts]))
+        if isinstance(ring, Polygon):
+            ring = MultiPolygon([ring])
         model["floors"][f] = {
             "z": lv["z"], "top": lv["top"],
             "walls": poly_dicts(merged),
+            "shell": poly_dicts(ring),
             "footprint": poly_dicts(feet[f]),
             "openings": openings,
         }
         print(f, "walls:", len(model["floors"][f]["walls"]),
               f"(merged from {len(walls_m[f].geoms)})",
+              "shell:", len(model["floors"][f]["shell"]),
               "openings:", len(openings),
               "ext:", sum(1 for o in openings if o["exterior"]))
 

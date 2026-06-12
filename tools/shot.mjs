@@ -1,7 +1,9 @@
 // Screenshot the viewer from multiple angles / modes.
 import { chromium } from "playwright";
 
-const browser = await chromium.launch({ args: ["--use-gl=angle", "--enable-webgl", "--ignore-gpu-blocklist"] });
+const browser = await chromium.launch({
+  args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--disable-gpu"],
+});
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
 page.on("console", (m) => { if (m.type() === "error") console.log("PAGE ERROR:", m.text()); });
 page.on("pageerror", (e) => console.log("PAGE EXCEPTION:", e.message));

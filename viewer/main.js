@@ -108,7 +108,19 @@ for (const name of FLOOR_NAMES) {
   const zBase = fl.z - SEAM * 0.5;
   const wallTop = fl.top - SLAB + SEAM * 0.5;
 
-  // single merged mesh per floor — fewer cracks between fragments
+  // continuous exterior shell — full floor-to-floor height (closes vertical
+  // slits AND the horizontal seam at each slab). Openings already cut in 2D.
+  const shellGeos = extrudeGeometries(fl.shell || [], zBase, fl.top + SEAM);
+  if (shellGeos.length) {
+    const shell = mergeGeometries(shellGeos, false);
+    shellGeos.forEach((geo) => geo.dispose());
+    const shellMesh = new THREE.Mesh(shell, wallMat);
+    shellMesh.castShadow = true;
+    shellMesh.receiveShadow = true;
+    g.add(shellMesh);
+  }
+
+  // interior partitions + remaining wall detail (to ceiling)
   const wallGeos = extrudeGeometries(fl.walls, zBase, wallTop);
   if (wallGeos.length) {
     const merged = mergeGeometries(wallGeos, false);
@@ -119,12 +131,14 @@ for (const name of FLOOR_NAMES) {
     g.add(wallMesh);
   }
 
-  // openings: sill / lintel / glass / doors (2D voids already cut in merged walls)
+  // openings: sill / lintel / glass / doors (2D voids already cut in walls + shell)
   for (const o of fl.openings) {
     const [x0, y0, x1, y1] = expandRect(o.rect);
     const sill = fl.z + o.sill, head = fl.z + o.head;
+    // exterior openings pierce the full-height shell, so fill up to fl.top
+    const fillTop = o.exterior ? fl.top + SEAM : wallTop;
     if (o.sill > 0.05) g.add(boxMesh(x0, y0, x1, y1, zBase, sill + SEAM, wallMat));
-    if (head < fl.top - SLAB) g.add(boxMesh(x0, y0, x1, y1, head - SEAM, wallTop, wallMat));
+    if (head < fillTop) g.add(boxMesh(x0, y0, x1, y1, head - SEAM, fillTop, wallMat));
     const horiz = (x1 - x0) >= (y1 - y0);
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     if (o.kind === "door") {
@@ -132,13 +146,14 @@ for (const name of FLOOR_NAMES) {
       continue;
     }
     if (o.kind === "entry") {
-      // door slab, slightly ajar look: keep closed for simplicity
       const t = 0.06;
+      const doorTop = fl.z + Math.min(2.1, o.head);
       const dm = horiz
-        ? boxMesh(x0 + 0.03, cy - t / 2, x1 - 0.03, cy + t / 2, fl.z, fl.z + Math.min(2.1, o.head), M.door)
-        : boxMesh(cx - t / 2, y0 + 0.03, cx + t / 2, y1 - 0.03, fl.z, fl.z + Math.min(2.1, o.head), M.door);
-      // doors on main entry get glass sidelight if wide
+        ? boxMesh(x0 + 0.03, cy - t / 2, x1 - 0.03, cy + t / 2, fl.z, doorTop, M.door)
+        : boxMesh(cx - t / 2, y0 + 0.03, cx + t / 2, y1 - 0.03, fl.z, doorTop, M.door);
       g.add(dm);
+      // transom fill between door top and head fill (closes the slit)
+      if (doorTop < head) g.add(boxMesh(x0, y0, x1, y1, doorTop - SEAM, head + SEAM, wallMat));
       continue;
     }
     // window / glazing: frame + glass
