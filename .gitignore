@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Node
+node_modules/
+
+# Private plan PDF — never publish
+plans/house_plans.pdf
+
+# Generated debug output (rebuild locally)
+plans/pages/
+plans/crops/
+plans/extracted_*.json
+
+# OS
+.DS_Store

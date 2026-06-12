@@ -1,0 +1,22 @@
+{
+  "name": "amitas_house",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "uv run python tools/rebuild_all.py",
+    "serve": "uv run python -m http.server 8742",
+    "preview": "uv run python tools/preview_model.py && uv run python tools/check_openings.py",
+    "deploy": "bash scripts/deploy.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "three": "^0.165.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}
