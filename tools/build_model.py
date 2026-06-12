@@ -275,12 +275,31 @@ def classify_openings(openings, walls_m, footprint, floor):
     return openings
 
 
+def merge_walls(walls_m, openings, eps=0.07):
+    """Fuse fragmented wall polygons and cut 2D opening footprints (vertical voids when extruded)."""
+    geoms = list(walls_m.geoms) if hasattr(walls_m, "geoms") else [walls_m]
+    if not geoms:
+        return walls_m
+    merged = unary_union([p.buffer(eps, join_style=2) for p in geoms])
+    merged = merged.buffer(-eps * 0.88, join_style=2)
+    if openings:
+        cuts = unary_union([box(*o["rect"]).buffer(0.025, join_style=2) for o in openings])
+        merged = merged.difference(cuts)
+    if merged.is_empty:
+        return walls_m
+    if isinstance(merged, Polygon):
+        merged = MultiPolygon([merged])
+    return merged
+
+
 def poly_dicts(mp):
     res = []
     geoms = mp.geoms if hasattr(mp, "geoms") else [mp]
     for g in geoms:
         if g.is_empty or g.area < 0.01:
             continue
+        if not g.is_valid:
+            g = g.buffer(0)
         res.append({
             "outer": [[round(x, 3), round(y, 3)] for x, y in g.exterior.coords],
             "holes": [[[round(x, 3), round(y, 3)] for x, y in h.coords] for h in g.interiors],
@@ -331,13 +350,15 @@ def main():
     for f in FLOORS:
         lv = LEVELS[f]
         openings = classify_openings(opens[f], walls_m[f], feet[f], f)
+        merged = merge_walls(walls_m[f], openings)
         model["floors"][f] = {
             "z": lv["z"], "top": lv["top"],
-            "walls": poly_dicts(walls_m[f]),
+            "walls": poly_dicts(merged),
             "footprint": poly_dicts(feet[f]),
             "openings": openings,
         }
         print(f, "walls:", len(model["floors"][f]["walls"]),
+              f"(merged from {len(walls_m[f].geoms)})",
               "openings:", len(openings),
               "ext:", sum(1 for o in openings if o["exterior"]))
 

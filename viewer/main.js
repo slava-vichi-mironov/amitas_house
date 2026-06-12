@@ -1,9 +1,11 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const SLAB = 0.25;
 const EYE = 1.62;
+const SEAM = 0.045; // overlap to close gaps between wall parts
 
 // ---------- renderer / scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -70,6 +72,10 @@ function extrude(poly, z0, z1, mat) {
   return mesh;
 }
 
+function expandRect([x0, y0, x1, y1], d = SEAM) {
+  return [x0 - d, y0 - d, x1 + d, y1 + d];
+}
+
 function boxMesh(x0, y0, x1, y1, z0, z1, mat) {
   const g = new THREE.BoxGeometry(Math.max(x1 - x0, 0.01), Math.max(z1 - z0, 0.01), Math.max(y1 - y0, 0.01));
   const m = new THREE.Mesh(g, mat);
@@ -77,6 +83,15 @@ function boxMesh(x0, y0, x1, y1, z0, z1, mat) {
   m.castShadow = true;
   m.receiveShadow = true;
   return m;
+}
+
+function extrudeGeometries(polys, z0, z1) {
+  return polys.map((poly) => {
+    const geo = new THREE.ExtrudeGeometry(shapeFromPoly(poly), { depth: z1 - z0, bevelEnabled: false });
+    geo.rotateX(-Math.PI / 2);
+    geo.translate(0, z0, 0);
+    return geo;
+  });
 }
 
 // ---------- model ----------
@@ -89,16 +104,27 @@ const FLOOR_NAMES = ["ground", "first", "stairroom"];
 for (const name of FLOOR_NAMES) {
   const fl = model.floors[name];
   const g = groups[name];
-  const wallTop = fl.top - SLAB;
+  const wallMat = M.wallExt;
+  const zBase = fl.z - SEAM * 0.5;
+  const wallTop = fl.top - SLAB + SEAM * 0.5;
 
-  for (const w of fl.walls) g.add(extrude(w, fl.z, wallTop, name === "ground" ? M.wallExt : M.wallExt));
+  // single merged mesh per floor — fewer cracks between fragments
+  const wallGeos = extrudeGeometries(fl.walls, zBase, wallTop);
+  if (wallGeos.length) {
+    const merged = mergeGeometries(wallGeos, false);
+    wallGeos.forEach((geo) => geo.dispose());
+    const wallMesh = new THREE.Mesh(merged, wallMat);
+    wallMesh.castShadow = true;
+    wallMesh.receiveShadow = true;
+    g.add(wallMesh);
+  }
 
-  // openings: sill / lintel / glass / doors
+  // openings: sill / lintel / glass / doors (2D voids already cut in merged walls)
   for (const o of fl.openings) {
-    const [x0, y0, x1, y1] = o.rect;
+    const [x0, y0, x1, y1] = expandRect(o.rect);
     const sill = fl.z + o.sill, head = fl.z + o.head;
-    if (o.sill > 0.05) g.add(boxMesh(x0, y0, x1, y1, fl.z, sill, M.wallExt));
-    if (head < wallTop) g.add(boxMesh(x0, y0, x1, y1, head, wallTop, M.wallExt));
+    if (o.sill > 0.05) g.add(boxMesh(x0, y0, x1, y1, zBase, sill + SEAM, wallMat));
+    if (head < fl.top - SLAB) g.add(boxMesh(x0, y0, x1, y1, head - SEAM, wallTop, wallMat));
     const horiz = (x1 - x0) >= (y1 - y0);
     const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
     if (o.kind === "door") {
@@ -159,10 +185,15 @@ for (const s of model.slabs) {
     const dx = bx - ax, dy = by - ay;
     const L = Math.hypot(dx, dy);
     if (L < 0.05) continue;
-    const nx = -dy / L * t / 2, ny = dx / L * t / 2;
-    const xs = [ax + nx, ax - nx, bx + nx, bx - nx];
-    const ys = [ay + ny, ay - ny, by + ny, by - ny];
-    grp.add(boxMesh(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), s.z, s.z + h, M.parapet));
+    // extend segment ends so adjacent parapet boxes overlap at corners
+    const ext = t * 0.85;
+    const ux = dx / L, uy = dy / L;
+    const ax2 = ax - ux * ext, ay2 = ay - uy * ext;
+    const bx2 = bx + ux * ext, by2 = by + uy * ext;
+    const nx = -uy * t / 2, ny = ux * t / 2;
+    const xs = [ax2 + nx, ax2 - nx, bx2 + nx, bx2 - nx];
+    const ys = [ay2 + ny, ay2 - ny, by2 + ny, by2 - ny];
+    grp.add(boxMesh(Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), s.z - 0.01, s.z + h + 0.01, M.parapet));
   }
 }
 
